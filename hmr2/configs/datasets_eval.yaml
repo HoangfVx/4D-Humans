@@ -26,6 +26,8 @@ LSP-EXTENDED:
 
 COCO-VAL:
     TYPE: ImageDataset
-    DATASET_FILE: hmr2_evaluation_data/coco_val.npz
+    DATASET_FILE: hmr2_evaluation_data/coco_val.npz 
     IMG_DIR: /shared/pavlakos/datasets/coco/
+    # DATASET_FILE: ./hmr2_evaluation_data/coco_val.npz
+    # IMG_DIR: ./
     KEYPOINT_LIST: [0] # Dummy

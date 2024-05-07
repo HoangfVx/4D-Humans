@@ -165,3 +165,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+#out['pred_smpl_params'] contain the global_orient, body_pose, betas fields that correspond to the SMPL parameters
