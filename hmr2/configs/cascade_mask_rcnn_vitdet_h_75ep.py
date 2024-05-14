@@ -39,7 +39,7 @@ model = model_zoo.get_config("common/models/mask_rcnn_vitdet.py").model
 train = model_zoo.get_config("common/train.py").train
 train.amp.enabled = True
 train.ddp.fp16_compression = True
-train.init_checkpoint = "detectron2://ImageNetPretrained/MAE/mae_pretrain_vit_base.pth"
+train.init_checkpoint = "detectron2://ImageNetPretrained/MAE/mae_pretrain_vit_base.pth" 
 
 
 # Schedule
@@ -95,7 +95,7 @@ model.roi_heads.update(
             cls_agnostic_bbox_reg=True,
             num_classes="${...num_classes}",
         )
-        for (w1, w2) in [(10, 5), (20, 10), (30, 15)]
+        for (w1, w2) in [(10, 5), (20, 10), (30, 15)]                                                 
     ],
     proposal_matchers=[
         L(Matcher)(thresholds=[th], labels=[0, 1], allow_low_quality_matches=False)
