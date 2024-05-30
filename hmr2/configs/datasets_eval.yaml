@@ -9,6 +9,8 @@ H36M-VAL-P2:
     TYPE: ImageDataset
     DATASET_FILE: hmr2_evaluation_data/3dpw_test.npz
     IMG_DIR: /shared/pavlakos/datasets/3DPW/
+    # DATASET_FILE: ./hmr2_evaluation_data/3dpw_test.npz
+    # IMG_DIR: ./
     KEYPOINT_LIST: [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 43]
     USE_HIPS: False
 

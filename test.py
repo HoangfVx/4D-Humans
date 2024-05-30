@@ -18,7 +18,7 @@ def main():
     start = time.time()
     parser = argparse.ArgumentParser(description='HMR2 demo code')
     parser.add_argument('--checkpoint', type=str, default=DEFAULT_CHECKPOINT, help='Path to pretrained model checkpoint')
-    parser.add_argument('--img_folder', type=str, default='example_data/images', help='Folder with input images')
+    parser.add_argument('--img_path', type=str, default='example_data/images', help='Folder with input images')
     parser.add_argument('--out_folder', type=str, default='demo_out', help='Output folder to save rendered results')
     parser.add_argument('--side_view', dest='side_view', action='store_true', default=False, help='If set, render side view also')
     parser.add_argument('--top_view', dest='top_view', action='store_true', default=False, help='If set, render top view also')
@@ -63,89 +63,82 @@ def main():
     # Make output directory if it does not exist
     os.makedirs(args.out_folder, exist_ok=True)
 
-    # Iterate over all images in folder
-    for img_path in Path(args.img_folder).glob('*.png'):
-        img_cv2 = cv2.imread(str(img_path))
+    img_path = Path(args.img_path)
+    img_cv2 = cv2.imread(str(img_path))
+    det_out = detector(img_cv2)
+    det_instances = det_out['instances']
+    valid_idx = (det_instances.pred_classes==0) & (det_instances.scores > 0.5)
+    boxes=det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
+    dataset = ViTDetDataset(model_cfg, img_cv2, boxes)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=False, num_workers=0)
 
-        # Detect humans in image
-        det_out = detector(img_cv2)
-
-        det_instances = det_out['instances']
-        valid_idx = (det_instances.pred_classes==0) & (det_instances.scores > 0.5)
-        boxes=det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
-
-        # Run HMR2.0 on all detected humans
-        dataset = ViTDetDataset(model_cfg, img_cv2, boxes)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=False, num_workers=0)
-
-        all_verts = []
-        all_cam_t = []
+    all_verts = []
+    all_cam_t = []
         
-        for batch in dataloader:
-            batch = recursive_to(batch, device)
-            with torch.no_grad():
-                out = model(batch)
+    for batch in dataloader:
+        batch = recursive_to(batch, device)
+        with torch.no_grad():
+            out = model(batch)
 
-            pred_cam = out['pred_cam']
-            box_center = batch["box_center"].float()
-            box_size = batch["box_size"].float()
-            img_size = batch["img_size"].float()
-            scaled_focal_length = model_cfg.EXTRA.FOCAL_LENGTH / model_cfg.MODEL.IMAGE_SIZE * img_size.max()
-            pred_cam_t_full = cam_crop_to_full(pred_cam, box_center, box_size, img_size, scaled_focal_length).detach().cpu().numpy()
+        pred_cam = out['pred_cam']
+        box_center = batch["box_center"].float()
+        box_size = batch["box_size"].float()
+        img_size = batch["img_size"].float()
+        scaled_focal_length = model_cfg.EXTRA.FOCAL_LENGTH / model_cfg.MODEL.IMAGE_SIZE * img_size.max()
+        pred_cam_t_full = cam_crop_to_full(pred_cam, box_center, box_size, img_size, scaled_focal_length).detach().cpu().numpy()
 
-            # Render the result
-            batch_size = batch['img'].shape[0]
-            for n in range(batch_size):
-                # Get filename from path img_path
-                img_fn, _ = os.path.splitext(os.path.basename(img_path))
-                person_id = int(batch['personid'][n])
-                white_img = (torch.ones_like(batch['img'][n]).cpu() - DEFAULT_MEAN[:,None,None]/255) / (DEFAULT_STD[:,None,None]/255)
-                input_patch = batch['img'][n].cpu() * (DEFAULT_STD[:,None,None]/255) + (DEFAULT_MEAN[:,None,None]/255)
-                input_patch = input_patch.permute(1,2,0).numpy()
+        # Render the result
+        batch_size = batch['img'].shape[0]
+        for n in range(batch_size):
+            # Get filename from path img_path
+            img_fn, _ = os.path.splitext(os.path.basename(img_path))
+            person_id = int(batch['personid'][n])
+            white_img = (torch.ones_like(batch['img'][n]).cpu() - DEFAULT_MEAN[:,None,None]/255) / (DEFAULT_STD[:,None,None]/255)
+            input_patch = batch['img'][n].cpu() * (DEFAULT_STD[:,None,None]/255) + (DEFAULT_MEAN[:,None,None]/255)
+            input_patch = input_patch.permute(1,2,0).numpy()
 
-                regression_img = renderer(out['pred_vertices'][n].detach().cpu().numpy(),
+            regression_img = renderer(out['pred_vertices'][n].detach().cpu().numpy(),
+                                    out['pred_cam_t'][n].detach().cpu().numpy(),
+                                    batch['img'][n],
+                                    mesh_base_color=LIGHT_BLUE,
+                                    scene_bg_color=(1, 1, 1),
+                                    )
+
+            final_img = np.concatenate([input_patch, regression_img], axis=1)
+
+            if args.side_view:
+                side_img = renderer(out['pred_vertices'][n].detach().cpu().numpy(),
                                         out['pred_cam_t'][n].detach().cpu().numpy(),
-                                        batch['img'][n],
+                                        white_img,
                                         mesh_base_color=LIGHT_BLUE,
                                         scene_bg_color=(1, 1, 1),
-                                        )
+                                        side_view=True)
+                final_img = np.concatenate([final_img, side_img], axis=1)
 
-                final_img = np.concatenate([input_patch, regression_img], axis=1)
+            if args.top_view:
+                top_img = renderer(out['pred_vertices'][n].detach().cpu().numpy(),
+                                        out['pred_cam_t'][n].detach().cpu().numpy(),
+                                        white_img,
+                                        mesh_base_color=LIGHT_BLUE,
+                                        scene_bg_color=(1, 1, 1),
+                                        top_view=True)
+                final_img = np.concatenate([final_img, top_img], axis=1)
 
-                if args.side_view:
-                    side_img = renderer(out['pred_vertices'][n].detach().cpu().numpy(),
-                                            out['pred_cam_t'][n].detach().cpu().numpy(),
-                                            white_img,
-                                            mesh_base_color=LIGHT_BLUE,
-                                            scene_bg_color=(1, 1, 1),
-                                            side_view=True)
-                    final_img = np.concatenate([final_img, side_img], axis=1)
+            cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_{person_id}.png'), 255*final_img[:, :, ::-1])
 
-                if args.top_view:
-                    top_img = renderer(out['pred_vertices'][n].detach().cpu().numpy(),
-                                            out['pred_cam_t'][n].detach().cpu().numpy(),
-                                            white_img,
-                                            mesh_base_color=LIGHT_BLUE,
-                                            scene_bg_color=(1, 1, 1),
-                                            top_view=True)
-                    final_img = np.concatenate([final_img, top_img], axis=1)
+            # Add all verts and cams to list
+            verts = out['pred_vertices'][n].detach().cpu().numpy()
+            cam_t = pred_cam_t_full[n]
+            all_verts.append(verts)
+            all_cam_t.append(cam_t)
 
-                cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_{person_id}.png'), 255*final_img[:, :, ::-1])
+            # Save all meshes to disk
+            if args.save_mesh:
+                camera_translation = cam_t.copy()
+                tmesh = renderer.vertices_to_trimesh(verts, camera_translation, LIGHT_BLUE)
+                tmesh.export(os.path.join(args.out_folder, f'{img_fn}_{person_id}.obj'))
 
-                # Add all verts and cams to list
-                verts = out['pred_vertices'][n].detach().cpu().numpy()
-                cam_t = pred_cam_t_full[n]
-                all_verts.append(verts)
-                all_cam_t.append(cam_t)
-
-                # Save all meshes to disk
-                if args.save_mesh:
-                    camera_translation = cam_t.copy()
-                    tmesh = renderer.vertices_to_trimesh(verts, camera_translation, LIGHT_BLUE)
-                    tmesh.export(os.path.join(args.out_folder, f'{img_fn}_{person_id}.obj'))
-
-        # Render front view
-        if args.full_frame and len(all_verts) > 0:
+    if args.full_frame and len(all_verts) > 0:
             misc_args = dict(
                 mesh_base_color=LIGHT_BLUE,
                 scene_bg_color=(1, 1, 1),
@@ -161,11 +154,5 @@ def main():
 
             cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_all.png'), 255*input_img_overlay[:, :, ::-1])
 
-        end = time.time()
-        print(end - start)
-
 if __name__ == '__main__':
     main()
-
-
-#out['pred_smpl_params'] contain the global_orient, body_pose, betas fields that correspond to the SMPL parameters

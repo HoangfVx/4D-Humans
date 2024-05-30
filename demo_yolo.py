@@ -39,6 +39,7 @@ def main():
     model.eval()
 
     # Load detector
+    detector = torch.hub.load('ultralytics/yolov5', 'yolov5s')
     
 
     # Setup the renderer

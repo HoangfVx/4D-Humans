@@ -2,7 +2,8 @@ import os
 from typing import Dict
 from yacs.config import CfgNode as CN
 
-CACHE_DIR = os.path.join(os.environ.get("HOME"), ".cache")
+#CACHE_DIR = os.path.join(os.environ.get("$HOME"), ".cache")
+CACHE_DIR = os.path.join(os.getenv("CONDA_PREFIX"), ".cache")
 CACHE_DIR_4DHUMANS = os.path.join(CACHE_DIR, "4DHumans")
 
 def to_lower(x: Dict) -> Dict:
